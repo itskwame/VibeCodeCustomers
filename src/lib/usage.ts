@@ -13,6 +13,8 @@ export const PLAN_LIMITS: Record<PlanType, { projects: number; conversations: nu
   },
 };
 
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 export type UsageType = "DISCOVERY_CONVERSATION" | "DRAFT_GENERATION";
 
 export function getPeriodKey(date = new Date()) {
@@ -35,4 +37,17 @@ export function summarizeUsage(
       DRAFT_GENERATION: 0,
     } as Record<UsageType, number>
   );
+}
+
+export async function incrementUsageEvent(
+  supabase: SupabaseClient,
+  userId: string,
+  type: UsageType
+) {
+  await supabase.from("usage_events").insert({
+    user_id: userId,
+    type,
+    period_key: getPeriodKey(),
+    count: 1,
+  });
 }
