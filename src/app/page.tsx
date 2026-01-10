@@ -1,20 +1,11 @@
 import Link from "next/link";
+import { AppNav } from "@/components/AppNav";
 
 export default function Home() {
   return (
     <div className="page">
+      <AppNav />
       <div className="container">
-        <nav className="nav">
-          <div className="logo">VibeCodeCustomers</div>
-          <div className="nav-links">
-            <Link href="/pricing">Pricing</Link>
-            <Link href="/login">Login</Link>
-          </div>
-          <Link className="btn btn-secondary" href="/login">
-            Start free
-          </Link>
-        </nav>
-
         <section className="hero">
           <div className="fade-in">
             <div className="tag">For Vibe Coders / Indie Hackers</div>

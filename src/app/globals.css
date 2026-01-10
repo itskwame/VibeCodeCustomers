@@ -80,6 +80,16 @@ select {
   letter-spacing: 0.12em;
 }
 
+.nav-link {
+  color: var(--muted);
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
 .hero {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -192,6 +202,30 @@ select {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 24px;
+}
+
+.flex-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.usage-panel {
+  gap: 12px;
+}
+
+.meter {
+  width: 100%;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(28, 27, 25, 0.1);
+  overflow: hidden;
+}
+
+.meter-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent), var(--brand));
 }
 
 .field {

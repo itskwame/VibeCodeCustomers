@@ -23,9 +23,11 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  const plan = (userData.user.app_metadata?.plan as "FREE" | "PRO") ?? "FREE";
   return NextResponse.json({
     usage: summarizeUsage(data ?? []),
     periodKey,
-    limits: PLAN_LIMITS[userData.user.app_metadata?.plan ?? "FREE"],
+    limits: PLAN_LIMITS[plan],
+    plan,
   });
 }

@@ -29,3 +29,11 @@ export type Conversation = {
   ai_why_matched: string | null;
   last_analyzed_at: string | null;
 };
+
+export type SessionUser = {
+  id: string;
+  email?: string;
+  app_metadata?: {
+    plan?: "FREE" | "PRO";
+  };
+};
