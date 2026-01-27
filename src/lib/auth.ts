@@ -1,9 +1,22 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 export async function getUser() {
   const supabase = createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
-  return data.user ?? null;
+  if (data.user) {
+    return data.user;
+  }
+  if (isDev()) {
+    return {
+      id: DEV_USER_ID,
+      email: "dev@vibecode.dev",
+      app_metadata: {
+        plan: "PRO",
+      },
+    };
+  }
+  return null;
 }
 
 export async function requireUser() {

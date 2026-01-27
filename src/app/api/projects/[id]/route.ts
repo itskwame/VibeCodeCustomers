@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 const updateSchema = z
   .object({
@@ -8,6 +9,7 @@ const updateSchema = z
     productDescription: z.string().min(6).optional(),
     keywords: z.array(z.string()).optional(),
     subreddits: z.array(z.string()).optional(),
+    targetUser: z.string().optional(),
   })
   .refine((data) => Object.keys(data).length > 0, {
     message: "At least one field is required",
@@ -16,7 +18,8 @@ const updateSchema = z
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -24,7 +27,7 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
     .from("projects")
     .select("*")
     .eq("id", params.id)
-    .eq("user_id", userData.user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
@@ -41,7 +44,8 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
   const supabase = createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -56,9 +60,10 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
     .update({
       ...parse.data,
       product_description: parse.data.productDescription,
+      target_user: parse.data.targetUser ?? undefined,
     })
     .eq("id", params.id)
-    .eq("user_id", userData.user.id)
+    .eq("user_id", userId)
     .select()
     .single();
 

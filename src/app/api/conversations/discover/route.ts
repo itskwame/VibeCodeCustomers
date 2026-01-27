@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { searchReddit } from "@/lib/reddit";
 import { getProject } from "@/lib/db";
 import { incrementUsageEvent, UsageType } from "@/lib/usage";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 const bodySchema = z.object({
   projectId: z.string().uuid(),
@@ -20,11 +21,12 @@ export async function POST(req: Request) {
   }
 
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const project = await getProject(parse.data.projectId, userData.user.id, supabase);
+  const project = await getProject(parse.data.projectId, userId, supabase);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }
@@ -60,7 +62,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  await incrementUsageEvent(supabase, userData.user.id, "DISCOVERY_CONVERSATION");
+  await incrementUsageEvent(supabase, userId, "DISCOVERY_CONVERSATION");
 
   return NextResponse.json({
     conversationsAdded: data?.length ?? 0,

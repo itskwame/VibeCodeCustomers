@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getProject } from "@/lib/db";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 const RANGE_TO_DAYS: Record<string, number> = {
   day: 1,
@@ -12,7 +13,8 @@ const RANGE_TO_DAYS: Record<string, number> = {
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -22,7 +24,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "Missing projectId" }, { status: 400 });
   }
 
-  const project = await getProject(projectId, userData.user.id, supabase);
+  const project = await getProject(projectId, userId, supabase);
   if (!project) {
     return NextResponse.json({ error: "Project not found" }, { status: 404 });
   }

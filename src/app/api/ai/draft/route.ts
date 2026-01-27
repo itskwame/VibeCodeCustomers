@@ -4,6 +4,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getConversationById, getProject } from "@/lib/db";
 import { generateDraft } from "@/lib/ai";
 import { incrementUsageEvent } from "@/lib/usage";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 const bodySchema = z.object({
   conversationId: z.string().uuid(),
@@ -21,7 +22,8 @@ export async function POST(req: Request) {
   }
 
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Conversation not found" }, { status: 404 });
   }
 
-  const project = await getProject(conversation.project_id, userData.user.id, supabase);
+  const project = await getProject(conversation.project_id, userId, supabase);
   if (!project) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
@@ -50,7 +52,7 @@ export async function POST(req: Request) {
 
   const { data, error } = await supabase.from("drafts").insert({
     conversation_id: conversation.id,
-    user_id: userData.user.id,
+    user_id: userId,
     tone: parse.data.tone,
     length: parse.data.length,
     content: draftContent,
@@ -61,7 +63,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  await incrementUsageEvent(supabase, userData.user.id, "DRAFT_GENERATION");
+  await incrementUsageEvent(supabase, userId, "DRAFT_GENERATION");
 
   return NextResponse.json({
     draft: data?.[0] ?? null,

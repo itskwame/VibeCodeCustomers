@@ -5,6 +5,7 @@ export type Project = {
   product_description: string;
   keywords: string[];
   subreddits: string[];
+  target_user?: string | null;
   is_archived: boolean;
   created_at: string;
   updated_at: string;
@@ -28,6 +29,8 @@ export type Conversation = {
   ai_pain_points: string[] | null;
   ai_why_matched: string | null;
   last_analyzed_at: string | null;
+  source?: string | null;
+  found_at?: string | null;
 };
 
 export type SessionUser = {
@@ -36,4 +39,18 @@ export type SessionUser = {
   app_metadata?: {
     plan?: "FREE" | "PRO";
   };
+};
+
+export type LeadResult = {
+  id: string;
+  title: string;
+  snippet: string;
+  url: string;
+  source: string;
+  score: number;
+  engine: "google" | "bing";
+  publishedAt?: string;
+  keywordsMatched: string[];
+  threadLike: boolean;
+  isArticle: boolean;
 };

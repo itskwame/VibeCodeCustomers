@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppNav } from "@/components/AppNav";
 import { useUser } from "@/lib/hooks/useUser";
+import { isDev } from "@/lib/devAuth";
 
 type ConversationDetail = {
   id: string;
@@ -38,7 +39,7 @@ export default function ConversationDetailPage({ params }: PageProps) {
   const [analysisStatus, setAnalysisStatus] = useState("");
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" && !isDev()) {
       router.replace("/login");
     }
   }, [status, router]);

@@ -1,27 +1,43 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useUser } from "@/lib/hooks/useUser";
+
+const navItems = [
+  { label: "Dashboard", href: "/dashboard" },
+  { label: "Projects", href: "/dashboard#projects" },
+  { label: "Saved Leads", href: "/leads/saved" },
+  { label: "Settings", href: "/settings" },
+];
 
 export function AppNav() {
   const { user, status, logout } = useUser();
+  const pathname = usePathname();
+
+  const isActive = (href: string) => {
+    const base = href.split("#")[0];
+    if (!base) {
+      return false;
+    }
+    return pathname === base || (base !== "/" && pathname?.startsWith(base));
+  };
 
   return (
     <nav className="nav">
-      <div className="logo">VibeCodeCustomers</div>
+      <Link href="/" className="logo">
+        VibeCodeCustomers
+      </Link>
       <div className="nav-links">
-        <Link href="/" className="nav-link">
-          Home
-        </Link>
-        <Link href="/dashboard" className="nav-link">
-          Dashboard
-        </Link>
-        <Link href="/pricing" className="nav-link">
-          Pricing
-        </Link>
-        <Link href="/settings/billing" className="nav-link">
-          Billing
-        </Link>
+        {navItems.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={`nav-link ${isActive(item.href) ? "active" : ""}`}
+          >
+            {item.label}
+          </Link>
+        ))}
       </div>
       <div className="nav-actions">
         {status === "loading" && <span className="muted">Checking auth…</span>}

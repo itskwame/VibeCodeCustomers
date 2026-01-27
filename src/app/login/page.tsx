@@ -3,14 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, type FormEvent } from "react";
-import { AppNav } from "@/components/AppNav";
+import { AppShell } from "@/components/AppShell";
 import { useUser } from "@/lib/hooks/useUser";
+import { isDev } from "@/lib/devAuth";
 
 type Mode = "login" | "signup";
 
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useUser();
+  const devMode = isDev();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -18,10 +20,10 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (status === "authenticated") {
+    if (status === "authenticated" && !devMode) {
       router.replace("/dashboard");
     }
-  }, [status, router]);
+  }, [status, router, devMode]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,10 +56,9 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="page">
-      <AppNav />
+    <AppShell>
       <div className="container">
-        <section className="hero-card">
+        <section className="hero-card" style={{ marginTop: "40px" }}>
           <div className="flex-between">
             <h1>{mode === "login" ? "Welcome back" : "Create a free account"}</h1>
             <button
@@ -103,10 +104,19 @@ export default function LoginPage() {
               <Link className="btn btn-secondary" href="/">
                 Back to home
               </Link>
+              {devMode && (
+                <button
+                  className="btn btn-outline"
+                  type="button"
+                  onClick={() => router.push("/dashboard")}
+                >
+                  Continue (Dev Mode)
+                </button>
+              )}
             </div>
           </form>
         </section>
       </div>
-    </div>
+    </AppShell>
   );
 }

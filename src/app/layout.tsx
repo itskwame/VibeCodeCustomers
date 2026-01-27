@@ -24,7 +24,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={`${spaceGrotesk.variable} ${fraunces.variable}`}>{children}</body>
+      <body data-theme="dark" className={`${spaceGrotesk.variable} ${fraunces.variable}`}>
+        {children}
+      </body>
     </html>
   );
 }

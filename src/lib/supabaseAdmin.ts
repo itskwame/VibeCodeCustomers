@@ -16,6 +16,7 @@ type CreateProjectInput = {
   description?: string;
   keywords?: string[];
   subreddits?: string[];
+  targetUser?: string;
 };
 
 export async function createProject(input: CreateProjectInput) {
@@ -25,6 +26,7 @@ export async function createProject(input: CreateProjectInput) {
       ...input,
       keywords: input.keywords ?? [],
       subreddits: input.subreddits ?? [],
+      target_user: input.targetUser ?? null,
     })
     .select()
     .single();
@@ -138,5 +140,28 @@ export async function checkDailyLimit(user_id: string, limitType: "discovery" | 
     limitType === "discovery" ? counts.discovery_count : counts.draft_count;
   const exceeds = current >= limit;
 
-  return { counts, exceeds };
+  return { counts, exceeds, hasRecord: Boolean(data) };
+}
+
+export async function incrementDailyDiscoveryCount(
+  user_id: string,
+  currentCount: number,
+  hasRecord: boolean
+) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (hasRecord) {
+    await supabaseAdmin
+      .from("daily_usage")
+      .update({ discovery_count: currentCount + 1 })
+      .eq("user_id", user_id)
+      .eq("date", today);
+    return;
+  }
+
+  await supabaseAdmin.from("daily_usage").insert({
+    user_id,
+    date: today,
+    discovery_count: 1,
+    draft_count: 0,
+  });
 }

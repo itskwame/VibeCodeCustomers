@@ -1,22 +1,25 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState, type FormEvent } from "react";
-import { AppNav } from "@/components/AppNav";
+import { FormEvent, useState, useEffect } from "react";
+import { AppShell } from "@/components/AppShell";
+import { createProject } from "@/lib/mockAppData";
 import { useUser } from "@/lib/hooks/useUser";
+import { isDev } from "@/lib/devAuth";
 
 export default function NewProjectPage() {
   const router = useRouter();
   const { status } = useUser();
   const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [keywords, setKeywords] = useState("");
-  const [subreddits, setSubreddits] = useState("");
+  const [url, setUrl] = useState("");
+  const [building, setBuilding] = useState("");
+  const [targetCustomer, setTargetCustomer] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (status === "unauthenticated") {
+    if (status === "unauthenticated" && !isDev()) {
       router.replace("/login");
     }
   }, [status, router]);
@@ -26,83 +29,74 @@ export default function NewProjectPage() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/projects", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name,
-          productDescription: description,
-          keywords: keywords.split(",").map((token) => token.trim()).filter(Boolean),
-          subreddits: subreddits.split(",").map((token) => token.trim().replace(/^r\//i, "")).filter(Boolean),
-        }),
+      const project = await createProject({
+        name,
+        url: url || undefined,
+        building,
+        targetCustomer,
       });
-
-      if (!response.ok) {
-        const payload = await response.json();
-        setError(payload.error ?? "Unable to create project");
-        setLoading(false);
-        return;
-      }
-
-      router.push("/dashboard");
+      router.push(`/projects/${project.id}`);
     } catch (err) {
-      console.error("create project failed", err);
-      setError("Failed to reach the server.");
+      console.error(err);
+      setError("Unable to create project.");
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="page">
-      <AppNav />
+    <AppShell>
       <div className="container">
-        <section className="hero-card">
-          <h1>Create a project</h1>
-          <p className="muted">
-            Describe what you are building, add keywords, and the subreddits you
-            want to monitor.
-          </p>
-          <form className="panel" onSubmit={handleSubmit}>
+        <section className="hero-card" style={{ marginTop: "40px" }}>
+          <header className="flex-between">
+            <div>
+              <h1>Create a project</h1>
+              <p className="muted">Describe what you’ve built and who it helps.</p>
+            </div>
+            <Link className="btn btn-outline" href="/dashboard">
+              Back to dashboard
+            </Link>
+          </header>
+          <form className="panel" onSubmit={handleSubmit} style={{ marginTop: "24px" }}>
             <div className="field">
-              <label>Name</label>
+              <label>Project name</label>
               <input value={name} onChange={(event) => setName(event.target.value)} required />
             </div>
             <div className="field">
-              <label>Product description</label>
+              <label>Website or GitHub URL (optional)</label>
+              <input value={url} onChange={(event) => setUrl(event.target.value)} type="url" />
+            </div>
+            <div className="field">
+              <label>What you're building (1-2 sentences)</label>
               <textarea
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
+                value={building}
+                onChange={(event) => setBuilding(event.target.value)}
                 rows={3}
                 required
+                placeholder="Explain the core value in one or two sentences."
               />
             </div>
             <div className="field">
-              <label>Keywords (comma separated)</label>
-              <input value={keywords} onChange={(event) => setKeywords(event.target.value)} required />
-            </div>
-            <div className="field">
-              <label>Subreddits (comma separated)</label>
-              <input value={subreddits} onChange={(event) => setSubreddits(event.target.value)} required />
+              <label>Target customer</label>
+              <input
+                value={targetCustomer}
+                onChange={(event) => setTargetCustomer(event.target.value)}
+                required
+                placeholder="Who benefits the most? e.g. bootstrapped founders, community leads"
+              />
             </div>
             {error && <div className="notice">{error}</div>}
             <div className="cta-row">
               <button className="btn btn-primary" type="submit" disabled={loading}>
                 {loading ? "Creating…" : "Create project"}
               </button>
-              <button
-                className="btn btn-secondary"
-                type="button"
-                onClick={() => router.back()}
-              >
+              <Link className="btn btn-secondary" href="/dashboard">
                 Cancel
-              </button>
+              </Link>
             </div>
           </form>
         </section>
       </div>
-    </div>
+    </AppShell>
   );
 }

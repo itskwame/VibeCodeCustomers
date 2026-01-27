@@ -1,11 +1,13 @@
 import { NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { getPeriodKey, PLAN_LIMITS, summarizeUsage } from "@/lib/usage";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 export async function GET(req: Request) {
   const supabase = createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
-  if (!userData.user) {
+  const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
+  if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
@@ -15,7 +17,7 @@ export async function GET(req: Request) {
   const { data, error } = await supabase
     .from("usage_events")
     .select("type, count")
-    .eq("user_id", userData.user.id)
+    .eq("user_id", userId)
     .eq("period_key", periodKey);
 
   if (error) {
@@ -23,7 +25,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  const plan = (userData.user.app_metadata?.plan as "FREE" | "PRO") ?? "FREE";
+  const plan = (userData.user?.app_metadata?.plan as "FREE" | "PRO" | undefined) ?? (isDev() ? "PRO" : "FREE");
   return NextResponse.json({
     usage: summarizeUsage(data ?? []),
     periodKey,

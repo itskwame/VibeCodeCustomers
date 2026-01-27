@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 export type SessionUser = {
   id: string;
@@ -15,15 +16,24 @@ type UserState = {
   status: "loading" | "authenticated" | "unauthenticated" | "error";
 };
 
-const initialState: UserState = {
-  user: null,
-  status: "loading",
+const DEV_SESSION_USER: SessionUser = {
+  id: DEV_USER_ID,
+};
+
+const getInitialState = (): UserState => {
+  return isDev()
+    ? { user: DEV_SESSION_USER, status: "authenticated" }
+    : { user: null, status: "loading" };
 };
 
 export function useUser() {
-  const [state, setState] = useState<UserState>(initialState);
+  const [state, setState] = useState<UserState>(getInitialState);
 
   const refresh = useCallback(async () => {
+    if (isDev()) {
+      setState({ user: DEV_SESSION_USER, status: "authenticated" });
+      return;
+    }
     setState((prev) => ({ ...prev, status: "loading" }));
     try {
       const response = await fetch("/api/auth/me", { cache: "no-store" });
@@ -43,10 +53,18 @@ export function useUser() {
   }, []);
 
   useEffect(() => {
-    refresh();
+    if (isDev()) {
+      setState({ user: DEV_SESSION_USER, status: "authenticated" });
+      return;
+    }
+    void refresh();
   }, [refresh]);
 
   const logout = useCallback(async () => {
+    if (isDev()) {
+      setState({ user: null, status: "unauthenticated" });
+      return;
+    }
     await fetch("/api/auth/logout", { method: "POST" });
     setState({ user: null, status: "unauthenticated" });
   }, []);
