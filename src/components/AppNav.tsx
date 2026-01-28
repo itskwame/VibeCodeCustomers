@@ -6,8 +6,8 @@ import { useUser } from "@/lib/hooks/useUser";
 
 const navItems = [
   { label: "Dashboard", href: "/dashboard" },
-  { label: "Projects", href: "/dashboard#projects" },
-  { label: "Saved Leads", href: "/leads/saved" },
+  { label: "Leads", href: "/leads" },
+  { label: "Saved leads", href: "/leads/saved" },
   { label: "Settings", href: "/settings" },
 ];
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fetchLeadById, updateLeadStatus, AppLead } from "@/lib/mockAppData";
@@ -8,18 +8,14 @@ import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
 import Link from "next/link";
 
-type PageProps = {
-  params: {
-    leadId: string;
-  };
-};
-
-export default function LeadDetailPage({ params }: PageProps) {
+export default function LeadDetailPage() {
   const router = useRouter();
   const { status } = useUser();
   const [lead, setLead] = useState<AppLead | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState("");
+  const routeParams = useParams<{ leadId: string }>();
+  const leadId = routeParams?.leadId;
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -28,14 +24,14 @@ export default function LeadDetailPage({ params }: PageProps) {
   }, [status, router]);
 
   useEffect(() => {
-    if (status !== "authenticated") {
+    if (!leadId || status !== "authenticated") {
       return;
     }
     setLoading(true);
-    void fetchLeadById(params.leadId)
+    void fetchLeadById(leadId)
       .then((data) => setLead(data ?? null))
       .finally(() => setLoading(false));
-  }, [status, params.leadId]);
+  }, [status, leadId]);
 
   const handleCopy = async () => {
     if (!lead) {

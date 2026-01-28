@@ -1,26 +1,27 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { fetchProject, fetchRuns, RunRecord, AppProject } from "@/lib/mockAppData";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
 
-type PageProps = {
-  params: {
-    id: string;
-  };
-};
-
-export default function ProjectDetailPage({ params }: PageProps) {
+export default function ProjectDetailPage() {
   const router = useRouter();
   const { status } = useUser();
   const [project, setProject] = useState<AppProject | null>(null);
   const [runs, setRuns] = useState<RunRecord[]>([]);
   const [loadingProject, setLoadingProject] = useState(true);
   const [loadingRuns, setLoadingRuns] = useState(true);
+  const params = useParams<{ id: string }>();
+  const projectId =
+    typeof params?.id === "string"
+      ? params.id
+      : Array.isArray(params?.id)
+        ? params.id[0]
+        : "";
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -29,26 +30,26 @@ export default function ProjectDetailPage({ params }: PageProps) {
   }, [status, router]);
 
   useEffect(() => {
-    if (status !== "authenticated") {
+    if (!projectId || status !== "authenticated") {
       return;
     }
 
     setLoadingProject(true);
-    void fetchProject(params.id)
+    void fetchProject(projectId)
       .then((data) => setProject(data ?? null))
       .finally(() => setLoadingProject(false));
-  }, [status, params.id]);
+  }, [status, projectId]);
 
   useEffect(() => {
-    if (status !== "authenticated") {
+    if (!projectId || status !== "authenticated") {
       return;
     }
 
     setLoadingRuns(true);
-    void fetchRuns(params.id)
+    void fetchRuns(projectId)
       .then((data) => setRuns(data))
       .finally(() => setLoadingRuns(false));
-  }, [status, params.id]);
+  }, [status, projectId]);
 
   if (status === "loading" || loadingProject) {
     return (
@@ -68,6 +69,11 @@ export default function ProjectDetailPage({ params }: PageProps) {
         <div className="container">
           <div className="notice" style={{ marginTop: "40px" }}>
             Unable to find that project.
+            <div className="cta-row" style={{ marginTop: "12px" }}>
+              <Link className="btn btn-secondary" href="/dashboard">
+                Back to dashboard
+              </Link>
+            </div>
           </div>
         </div>
       </AppShell>
@@ -102,12 +108,12 @@ export default function ProjectDetailPage({ params }: PageProps) {
             </div>
           </div>
           <div className="cta-row" style={{ marginTop: "28px" }}>
-            <Link className="btn btn-primary" href={`/projects/${project.id}/discover`}>
+            <Link className="btn btn-primary" href={`/projects/${projectId}/leads?discover=1`}>
               Find Leads
             </Link>
-            <button className="btn btn-outline" disabled>
+            <Link className="btn btn-outline" href={`/projects/${project.id}/edit`}>
               Edit project
-            </button>
+            </Link>
             <Link className="btn btn-secondary" href="#runs">
               View past runs
             </Link>
