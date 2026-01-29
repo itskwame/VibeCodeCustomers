@@ -33,10 +33,26 @@ export default function ProjectLeadsPage() {
   const { status } = useUser();
   const [project, setProject] = useState<AppProject | null>(null);
   const [leads, setLeads] = useState<AppLead[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [refineNotice, setRefineNotice] = useState("");
   const [refining, setRefining] = useState(false);
   const [savingLead, setSavingLead] = useState<string | null>(null);
+
+  const refetch = async () => {
+    if (!projectId || status !== "authenticated") {
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const loadedProject = await fetchProject(projectId);
+      setProject(loadedProject ?? null);
+      const leadData = await fetchLeads(projectId);
+      setLeads(leadData);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -45,19 +61,9 @@ export default function ProjectLeadsPage() {
   }, [status, router]);
 
   useEffect(() => {
-    if (!projectId || status !== "authenticated") {
-      return;
-    }
-    setLoading(true);
-    const load = async () => {
-      const loadedProject = await fetchProject(projectId);
-      setProject(loadedProject ?? null);
-      const leadData = await fetchLeads(projectId);
-      setLeads(leadData);
-      setLoading(false);
-    };
-    void load();
-  }, [status, projectId]);
+    void refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params.id]);
 
   const groupedLeads = useMemo(() => {
     const byPlatform: Record<string, AppLead[]> = {};
@@ -120,7 +126,7 @@ export default function ProjectLeadsPage() {
 
   return (
     <AppShell>
-      <DiscoverRunner projectId={params.id ?? ""} />
+      <DiscoverRunner projectId={projectId} onDone={refetch} />
       <div className="container">
         {leads.length === 0 ? (
           <section className="hero-card" style={{ marginTop: "40px" }}>
@@ -135,7 +141,7 @@ export default function ProjectLeadsPage() {
               No leads yet. Run discovery to see fresh conversations.
             </p>
             <div className="cta-row" style={{ marginTop: "24px" }}>
-              <Link className="btn btn-primary" href={`/projects/${params.id ?? ""}/leads?discover=1`}>
+              <Link className="btn btn-primary" href={`/projects/${projectId}/leads?discover=1`}>
                 Find leads
               </Link>
             </div>
