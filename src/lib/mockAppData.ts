@@ -1,7 +1,10 @@
+import { DEV_USER_ID } from "@/lib/devAuth";
+
 export type LeadStatus = "new" | "viewed" | "saved" | "replied" | "ignored" | "responded";
 
 export type AppProject = {
   id: string;
+  userId: string;
   name: string;
   url?: string;
   building: string;
@@ -45,6 +48,113 @@ export type AppLead = {
   postDate: string;
   canonicalUrl: string;
 };
+
+export type UserPlan = "free" | "starter" | "pro" | "agency";
+
+export type AppUser = {
+  id: string;
+  plan: UserPlan;
+  planPeriodStart: string;
+  createdAt: string;
+};
+
+export type UsageCounter = {
+  userId: string;
+  periodKey: string;
+  runsUsed: number;
+  leadsAdded: number;
+  updatedAt: string;
+};
+
+export type UsageSummary = {
+  userId: string;
+  plan: UserPlan;
+  periodKey: string;
+  runsUsed: number;
+  leadsAdded: number;
+  runsCap: number;
+  leadsCap: number;
+  runsRemaining: number;
+  leadsRemaining: number;
+  runsPercent: number;
+  leadsPercent: number;
+};
+
+export type DiscoveryRun = {
+  id: string;
+  userId: string;
+  projectId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: "success" | "error" | "blocked";
+  errorMessage?: string | null;
+  leadsFound: number;
+  leadsAdded: number;
+  queryMeta?: Record<string, unknown> | null;
+  model?: "fast" | "premium" | null;
+};
+
+export type DiscoveryResult = {
+  status: "success" | "error" | "blocked";
+  runId: string;
+  leadsFound: number;
+  leadsAdded: number;
+  limitReached: boolean;
+  message?: string;
+};
+
+const PLAN_LIMITS: Record<
+  UserPlan,
+  {
+    label: string;
+    price: string;
+    period: "lifetime" | "monthly";
+    runsCap: number;
+    leadsCap: number;
+    description: string;
+  }
+> = {
+  free: {
+    label: "Free",
+    price: "$0",
+    period: "lifetime",
+    runsCap: 3,
+    leadsCap: 50,
+    description: "Perfect for trying discovery before you upgrade.",
+  },
+  starter: {
+    label: "Starter",
+    price: "$29/mo",
+    period: "monthly",
+    runsCap: 40,
+    leadsCap: 750,
+    description: "Ideal for founders running weekly discovery sessions.",
+  },
+  pro: {
+    label: "Pro",
+    price: "$79/mo",
+    period: "monthly",
+    runsCap: 120,
+    leadsCap: 2000,
+    description: "Scale discovery without worrying about limits.",
+  },
+  agency: {
+    label: "Agency",
+    price: "$199/mo",
+    period: "monthly",
+    runsCap: 500,
+    leadsCap: 10000,
+    description: "Bring unlimited discovery to your whole team.",
+  },
+};
+
+export const PLAN_TIERS = (Object.keys(PLAN_LIMITS) as UserPlan[]).map((planId) => {
+  const config = PLAN_LIMITS[planId];
+  return {
+    id: planId,
+    ...config,
+  };
+});
 
 const PLATFORM_LABELS: Record<string, string> = {
   reddit: "Reddit",
@@ -115,9 +225,106 @@ export const leadsYTD = () => {
 export const savedLeadsCount = () => leads.filter((lead) => lead.status === "saved").length;
 export const repliesSentCount = () => repliesSentTotal;
 
+const users: AppUser[] = [
+  {
+    id: DEV_USER_ID,
+    plan: "free",
+    planPeriodStart: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  },
+];
+
+const usageCounters: Record<string, UsageCounter> = {};
+const discoveryRuns: DiscoveryRun[] = [];
+
+const getPlanDefinition = (plan: UserPlan) => PLAN_LIMITS[plan];
+
+const getPeriodKey = (plan: UserPlan) =>
+  plan === "free" ? "lifetime" : new Date().toISOString().slice(0, 7);
+
+const getUsageKey = (userId: string, periodKey: string) => `${userId}::${periodKey}`;
+
+const resolveUser = (userId: string): AppUser => {
+  let user = users.find((entry) => entry.id === userId);
+  if (!user) {
+    user = {
+      id: userId,
+      plan: "free",
+      planPeriodStart: new Date().toISOString(),
+      createdAt: new Date().toISOString(),
+    };
+    users.push(user);
+  }
+  return user;
+};
+
+const resolveUsageCounter = (userId: string, plan: UserPlan) => {
+  const periodKey = getPeriodKey(plan);
+  const key = getUsageKey(userId, periodKey);
+  if (!usageCounters[key]) {
+    usageCounters[key] = {
+      userId,
+      periodKey,
+      runsUsed: 0,
+      leadsAdded: 0,
+      updatedAt: new Date().toISOString(),
+    };
+  }
+  return usageCounters[key];
+};
+
+const logDiscoveryRun = (entry: DiscoveryRun) => {
+  discoveryRuns.unshift(entry);
+};
+
+export async function getPlanForUser(userId: string): Promise<UserPlan> {
+  const user = resolveUser(userId);
+  return user.plan;
+}
+
+export async function getUsage(userId: string): Promise<UsageSummary> {
+  const plan = await getPlanForUser(userId);
+  const definition = getPlanDefinition(plan);
+  const counter = resolveUsageCounter(userId, plan);
+  const runsUsed = counter.runsUsed;
+  const leadsAdded = counter.leadsAdded;
+  const runsCap = definition.runsCap;
+  const leadsCap = definition.leadsCap;
+  const runsRemaining = Math.max(0, runsCap - runsUsed);
+  const leadsRemaining = Math.max(0, leadsCap - leadsAdded);
+  const runsPercent = runsCap > 0 ? Math.min(100, Math.round((runsUsed / runsCap) * 100)) : 0;
+  const leadsPercent = leadsCap > 0 ? Math.min(100, Math.round((leadsAdded / leadsCap) * 100)) : 0;
+  return {
+    userId,
+    plan,
+    periodKey: counter.periodKey,
+    runsUsed,
+    leadsAdded,
+    runsCap,
+    leadsCap,
+    runsRemaining,
+    leadsRemaining,
+    runsPercent,
+    leadsPercent,
+  };
+}
+
+export async function incrementUsage(
+  userId: string,
+  delta: { runsDelta?: number; leadsDelta?: number }
+): Promise<UsageSummary> {
+  const plan = await getPlanForUser(userId);
+  const counter = resolveUsageCounter(userId, plan);
+  counter.runsUsed += delta.runsDelta ?? 0;
+  counter.leadsAdded += delta.leadsDelta ?? 0;
+  counter.updatedAt = new Date().toISOString();
+  return getUsage(userId);
+}
+
 const baseProjects: AppProject[] = [
   {
     id: "queueflow",
+    userId: DEV_USER_ID,
     name: "QueueFlow Beta",
     url: "https://queueflow.app",
     building:
@@ -132,6 +339,7 @@ const baseProjects: AppProject[] = [
   },
   {
     id: "emberdesk",
+    userId: DEV_USER_ID,
     name: "EmberDesk",
     url: "https://emberdesk.launch",
     building:
@@ -180,18 +388,17 @@ const initialRuns: Record<string, RunRecord[]> = {
   ],
 };
 
-const discoveryCounts: Record<string, number> = {
-  queueflow: initialRuns.queueflow.length,
-  emberdesk: initialRuns.emberdesk.length,
-};
-
 const runHistory: Record<string, RunRecord[]> = { ...initialRuns };
 
 const leads: AppLead[] = [
   {
     id: "lead-queueflow-1",
     projectId: "queueflow",
+    userId: DEV_USER_ID,
     projectName: "QueueFlow Beta",
+    source: "reddit",
+    url: "https://www.reddit.com/r/indiebuilder/comments/1abc123",
+    snippet: "Support teams are juggling manual standups while shipping a beta release.",
     platform: "reddit",
     platformKey: "reddit",
     platformLabel: "Reddit",
@@ -217,7 +424,11 @@ const leads: AppLead[] = [
   {
     id: "lead-queueflow-2",
     projectId: "queueflow",
+    userId: DEV_USER_ID,
     projectName: "QueueFlow Beta",
+    source: "x",
+    url: "https://x.com/ops_guru/status/1234567890",
+    snippet: "Ops lead needs a calmer way to book syncs without pinging the team all day.",
     platform: "x",
     platformKey: "x",
     platformLabel: "X",
@@ -243,7 +454,11 @@ const leads: AppLead[] = [
   {
     id: "lead-emberdesk-1",
     projectId: "emberdesk",
+    userId: DEV_USER_ID,
     projectName: "EmberDesk",
+    source: "linkedin",
+    url: "https://www.linkedin.com/posts/emberdesk_ai-helping",
+    snippet: "CS founders want summaries that keep replies considerate and precise.",
     platform: "linkedin",
     platformKey: "linkedin",
     platformLabel: "LinkedIn",
@@ -269,7 +484,11 @@ const leads: AppLead[] = [
   {
     id: "lead-emberdesk-2",
     projectId: "emberdesk",
+    userId: DEV_USER_ID,
     projectName: "EmberDesk",
+    source: "discord",
+    url: "https://discord.com/channels/abc/1234",
+    snippet: "Community manager handles Discord and wants AI replies that stay helpful.",
     platform: "slack",
     platformKey: "other",
     platformLabel: "Other",
@@ -295,7 +514,11 @@ const leads: AppLead[] = [
   {
     id: "lead-emberdesk-3",
     projectId: "emberdesk",
+    userId: DEV_USER_ID,
     projectName: "EmberDesk",
+    source: "hackernews",
+    url: "https://news.ycombinator.com/item?id=35210000",
+    snippet: "Founder describes handling many customer questions and needing summaries.",
     platform: "hackernews",
     platformKey: "hackernews",
     platformLabel: "Hacker News",
@@ -377,8 +600,6 @@ const discoveryLeadTemplates = [
 ];
 let leadSequence = leads.length;
 
-const runLimit = 3;
-
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const canonicalUrl = (input: string) => {
@@ -404,10 +625,12 @@ export async function createProject(payload: {
   building?: string;
   targetCustomer?: string;
   notes?: string;
+  userId?: string;
 }): Promise<AppProject> {
   const normalizedUrl = normalizeProjectUrl(payload.url ?? "");
   const newProject: AppProject = {
     id: `project-${Date.now()}`,
+    userId: payload.userId ?? DEV_USER_ID,
     name: payload.name,
     url: normalizedUrl,
     building: payload.building ?? "",
@@ -422,7 +645,6 @@ export async function createProject(payload: {
   };
   projects = [newProject, ...projects];
   runHistory[newProject.id] = [];
-  discoveryCounts[newProject.id] = 0;
   return newProject;
 }
 
@@ -444,6 +666,7 @@ export async function updateProject(
   const normalizedUrl = normalizeProjectUrl(payload.url ?? existing.url ?? "");
   const updated: AppProject = {
     ...existing,
+    userId: existing.userId,
     name: payload.name,
     url: normalizedUrl,
     building: payload.building ?? existing.building,
@@ -458,35 +681,109 @@ export async function fetchRuns(projectId: string): Promise<RunRecord[]> {
   return [...(runHistory[projectId] ?? [])];
 }
 
-export async function runDiscovery(
-  projectId: string
-): Promise<{ limitReached: boolean; runId?: string; message?: string }> {
-  const count = (discoveryCounts[projectId] ?? 0) + 1;
-  discoveryCounts[projectId] = count;
+export async function runDiscovery(userId: string, projectId: string): Promise<DiscoveryResult> {
+  const runId = `run-${projectId}-${Date.now()}`;
+  const startedAt = new Date().toISOString();
+  const usage = await getUsage(userId);
+  const blockedRuns = usage.runsRemaining <= 0;
+  const blockedLeads = usage.leadsRemaining <= 0;
 
-  if (count > runLimit) {
+  if (blockedRuns || blockedLeads) {
+    const message = blockedRuns
+      ? usage.plan === "free"
+        ? "You've used your 3 free runs. Upgrade to keep finding customers."
+        : "You've hit your monthly run limit. Upgrade to keep finding customers."
+      : usage.plan === "free"
+        ? "You've reached your 50 free leads. Upgrade to keep finding customers."
+        : "You've hit your monthly lead limit. Upgrade to keep finding customers.";
+    logDiscoveryRun({
+      id: runId,
+      userId,
+      projectId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      status: "blocked",
+      leadsFound: 0,
+      leadsAdded: 0,
+      errorMessage: message,
+      queryMeta: null,
+      model: null,
+    });
     return {
-      limitReached: true,
-      message:
-        "You've hit the mock limit for this demo. Upgrade to unlock more discovery credits instantly.",
+      status: "blocked",
+      runId,
+      leadsFound: 0,
+      leadsAdded: 0,
+      limitReached: blockedLeads,
+      message,
     };
   }
 
-  const runId = `run-${projectId}-${Date.now()}`;
-  const record: RunRecord = {
+  const project = projects.find((entry) => entry.id === projectId);
+  const targetCustomer = project?.targetCustomer ?? "";
+  const building = project?.building;
+  const runRecordBase: RunRecord = {
     id: runId,
     projectId,
-    targetCustomer: (projects.find((project) => project.id === projectId)?.targetCustomer) ?? "",
-    building: projects.find((project) => project.id === projectId)?.building,
+    targetCustomer,
+    building,
     createdAt: new Date().toISOString(),
     state: "complete",
   };
-  runHistory[projectId] = [record, ...(runHistory[projectId] ?? [])];
-  await delay(800);
-  generateLeadsForRun(projectId, runId);
+
+  const leadsFound = discoveryLeadTemplates.length;
+  let leadsAdded = 0;
+  let status: "success" | "error" = "success";
+  let message: string | undefined;
+
+  try {
+    await delay(800);
+    const maxLeads = Math.min(leadsFound, usage.leadsRemaining);
+    const generated = generateLeadsForRun(projectId, runId, maxLeads);
+    leadsAdded = generated.length;
+    const limitReached = leadsAdded < leadsFound;
+    if (limitReached) {
+      message = "Leads capped by your plan limits.";
+    }
+    runHistory[projectId] = [runRecordBase, ...(runHistory[projectId] ?? [])];
+  } catch (error) {
+    status = "error";
+    message = "Discovery failed. Please try again.";
+  } finally {
+    await incrementUsage(userId, { runsDelta: 1, leadsDelta: leadsAdded });
+    logDiscoveryRun({
+      id: runId,
+      userId,
+      projectId,
+      startedAt,
+      finishedAt: new Date().toISOString(),
+      status,
+      leadsFound,
+      leadsAdded,
+      errorMessage: status === "error" ? message ?? null : null,
+      queryMeta: null,
+      model: "fast",
+    });
+  }
+
+  if (status === "success") {
+    return {
+      status: "success",
+      runId,
+      leadsFound,
+      leadsAdded,
+      limitReached: leadsAdded < leadsFound,
+      message,
+    };
+  }
+
   return {
-    limitReached: false,
+    status: "error",
     runId,
+    leadsFound,
+    leadsAdded,
+    limitReached: false,
+    message,
   };
 }
 
@@ -507,14 +804,21 @@ export async function refineDiscovery(options: {
     state: "queued",
   };
   runHistory[options.projectId] = [record, ...(runHistory[options.projectId] ?? [])];
-  discoveryCounts[options.projectId] = 0;
   generateLeadsForRun(options.projectId, runId);
   return record;
 }
 
-const generateLeadsForRun = (projectId: string, runId: string): AppLead[] => {
+const generateLeadsForRun = (projectId: string, runId: string, maxLeads?: number): AppLead[] => {
   const added: AppLead[] = [];
+  const project = projects.find((entry) => entry.id === projectId);
+  const projectName = project?.name ?? projectId;
+  const userId = project?.userId ?? DEV_USER_ID;
+
   discoveryLeadTemplates.forEach((template) => {
+    if (typeof maxLeads === "number" && added.length >= maxLeads) {
+      return;
+    }
+
     leadSequence += 1;
     const post_url = `${template.post_url}?run=${runId}&item=${leadSequence}`;
     const canonical = canonicalUrl(post_url);
@@ -522,12 +826,17 @@ const generateLeadsForRun = (projectId: string, runId: string): AppLead[] => {
     if (alreadyExists) {
       return;
     }
+
     const platformMeta = normalizePlatform(template.platform);
-    const projectName = projects.find((project) => project.id === projectId)?.name ?? projectId;
+    const snippet = template.context ?? template.title;
     const newLead: AppLead = {
       id: `lead-${leadSequence}`,
+      userId,
       projectId,
       projectName,
+      source: template.platform,
+      url: post_url,
+      snippet,
       platform: template.platform,
       platformKey: platformMeta.key,
       platformLabel: platformMeta.label,
@@ -547,6 +856,7 @@ const generateLeadsForRun = (projectId: string, runId: string): AppLead[] => {
     leads.unshift(newLead);
     added.push(newLead);
   });
+
   return added;
 };
 

@@ -12,11 +12,13 @@ export type DiscoveryResult = {
 
 export default function DiscoverRunner({
   projectId,
+  userId,
   onStart,
   onSuccess,
   onError,
 }: {
   projectId: string;
+  userId: string;
   onStart?: () => void;
   onSuccess?: (result: DiscoveryResult) => void;
   onError?: (error: unknown) => void;
@@ -35,7 +37,7 @@ export default function DiscoverRunner({
   }, [shouldRun]);
 
   useEffect(() => {
-    if (!projectId) return;
+    if (!projectId || !userId) return;
     if (!shouldRun) return;
     if (ranRef.current) return;
 
@@ -44,7 +46,7 @@ export default function DiscoverRunner({
 
     (async () => {
       try {
-        const result = await runDiscovery(projectId);
+        const result = await runDiscovery(userId, projectId);
         onSuccess?.(result);
       } catch (error) {
         onError?.(error);
@@ -59,7 +61,7 @@ export default function DiscoverRunner({
         }
       }
     })();
-  }, [projectId, shouldRun, router, pathname, onStart, onSuccess, onError]);
+  }, [projectId, userId, shouldRun, router, pathname, onStart, onSuccess, onError]);
 
   return null;
 }

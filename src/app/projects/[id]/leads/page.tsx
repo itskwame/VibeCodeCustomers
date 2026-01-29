@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import DiscoverRunner, { DiscoveryResult } from "./DiscoverRunner";
 import { toast } from "@/components/toastStore";
@@ -11,8 +11,10 @@ import {
   AppProject,
   fetchLeads,
   fetchProject,
+  getUsage,
   refineDiscovery,
   updateLeadStatus,
+  UsageSummary,
 } from "@/lib/mockAppData";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
@@ -25,13 +27,14 @@ const platformLabels: Record<string, string> = {
 export default function ProjectLeadsPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
+  const { user, status } = useUser();
+  const userId = user?.id ?? "";
   const projectId =
     typeof params?.id === "string"
       ? params.id
       : Array.isArray(params?.id)
         ? params.id[0]
         : "";
-  const { status } = useUser();
   const [project, setProject] = useState<AppProject | null>(null);
   const [leads, setLeads] = useState<AppLead[]>([]);
   const [loading, setLoading] = useState(true);
@@ -39,26 +42,29 @@ export default function ProjectLeadsPage() {
   const [refining, setRefining] = useState(false);
   const [savingLead, setSavingLead] = useState<string | null>(null);
   const [isDiscovering, setIsDiscovering] = useState(false);
-  const leadsRef = useRef<AppLead[]>([]);
-
-  useEffect(() => {
-    leadsRef.current = leads;
-  }, [leads]);
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
 
   const refetch = useCallback(async () => {
-    if (!projectId || status !== "authenticated") {
+    if (!projectId || status !== "authenticated" || !userId) {
+      return [] as AppLead[];
+    }
+    try {
+      const loadedProject = await fetchProject(projectId);
+      setProject(loadedProject ?? null);
+      const leadData = await fetchLeads(projectId);
+      setLeads(leadData);
+      const usage = await getUsage(userId);
+      setUsageSummary(usage);
+      return leadData;
+    } catch (error) {
+      console.error("Failed to refresh leads", error);
       return [];
     }
-    const loadedProject = await fetchProject(projectId);
-    setProject(loadedProject ?? null);
-    const leadData = await fetchLeads(projectId);
-    setLeads(leadData);
-    return leadData;
-  }, [projectId, status]);
+  }, [projectId, status, userId]);
 
   useEffect(() => {
     let active = true;
-    if (!projectId || status !== "authenticated") {
+    if (!projectId || status !== "authenticated" || !userId) {
       setLoading(false);
       return () => {
         active = false;
@@ -76,7 +82,7 @@ export default function ProjectLeadsPage() {
     return () => {
       active = false;
     };
-  }, [projectId, status, refetch]);
+  }, [projectId, status, userId, refetch]);
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -90,19 +96,23 @@ export default function ProjectLeadsPage() {
 
   const handleDiscoverySuccess = useCallback(
     async (result: DiscoveryResult) => {
-      try {
-        const beforeCount = leadsRef.current.length;
-        const updatedLeads = await refetch();
-        const added = Math.max(0, (updatedLeads.length ?? 0) - beforeCount);
-        if (result.limitReached) {
-          toast.error(result.message ?? "Discovery limit reached. Please try again.");
-        } else if (added > 0) {
-          toast.success(`✅ ${added} new leads added`);
-        } else {
-          toast.info("No new leads found this run.");
-        }
-      } finally {
-        setIsDiscovering(false);
+      await refetch();
+      setIsDiscovering(false);
+      if (result.status === "blocked") {
+        toast.error(result.message ?? "You've hit your limit. Upgrade to keep finding customers.");
+        return;
+      }
+      if (result.status === "error") {
+        toast.error(result.message ?? "Discovery failed. Please try again.");
+        return;
+      }
+      if (result.leadsAdded > 0) {
+        const label = result.limitReached
+          ? `✅ ${result.leadsAdded} new leads added (limit reached)`
+          : `✅ ${result.leadsAdded} new leads added`;
+        toast.success(label);
+      } else {
+        toast.info("No new leads found this run.");
       }
     },
     [refetch]
@@ -114,28 +124,18 @@ export default function ProjectLeadsPage() {
     setIsDiscovering(false);
   }, []);
 
+  const isBlocked =
+    Boolean(usageSummary) && (usageSummary.runsRemaining <= 0 || usageSummary.leadsRemaining <= 0);
+  const showUsageWarning =
+    Boolean(usageSummary) && usageSummary.leadsCap > 0 && usageSummary.leadsPercent >= 80 && usageSummary.leadsRemaining > 0;
+
   const handleRunDiscovery = useCallback(() => {
-    if (!projectId || isDiscovering) {
+    if (!projectId || !userId || isBlocked || isDiscovering) {
       return;
     }
     setIsDiscovering(true);
     void router.push(`/projects/${projectId}/leads?discover=1`);
-  }, [projectId, isDiscovering, router]);
-
-  const groupedLeads = useMemo(() => {
-    const byPlatform: Record<string, AppLead[]> = {};
-    leads.forEach((lead) => {
-      if (!byPlatform[lead.platform]) {
-        byPlatform[lead.platform] = [];
-      }
-      byPlatform[lead.platform].push(lead);
-    });
-    return byPlatform;
-  }, [leads]);
-
-  if (!projectId) {
-    return null;
-  }
+  }, [projectId, isBlocked, isDiscovering, router, userId]);
 
   const handleSave = async (leadId: string) => {
     setSavingLead(leadId);
@@ -162,12 +162,27 @@ export default function ProjectLeadsPage() {
         feedback: [],
       });
       setRefineNotice("New leads added to the list.");
-      const updated = await fetchLeads(projectId);
-      setLeads(updated);
+      const updatedLeads = await fetchLeads(projectId);
+      setLeads(updatedLeads);
     } finally {
       setRefining(false);
     }
   };
+
+  const groupedLeads = useMemo(() => {
+    const byPlatform: Record<string, AppLead[]> = {};
+    leads.forEach((lead) => {
+      if (!byPlatform[lead.platform]) {
+        byPlatform[lead.platform] = [];
+      }
+      byPlatform[lead.platform].push(lead);
+    });
+    return byPlatform;
+  }, [leads]);
+
+  if (!projectId) {
+    return null;
+  }
 
   if (status === "loading" || loading) {
     return (
@@ -181,10 +196,19 @@ export default function ProjectLeadsPage() {
     );
   }
 
+  const usageMessage = usageSummary
+    ? `Runs: ${usageSummary.runsUsed}/${usageSummary.runsCap} • Leads: ${usageSummary.leadsAdded}/${usageSummary.leadsCap}`
+    : null;
+  const blockedMessage =
+    usageSummary?.plan === "free"
+      ? "You've used your 3 free runs / 50 free leads. Upgrade to keep finding customers."
+      : "You've hit your monthly limit. Upgrade to keep finding customers.";
+
   return (
     <AppShell>
       <DiscoverRunner
         projectId={projectId}
+        userId={userId}
         onStart={handleDiscoveryStart}
         onSuccess={handleDiscoverySuccess}
         onError={handleDiscoveryError}
@@ -199,6 +223,20 @@ export default function ProjectLeadsPage() {
                 <p className="muted">{project?.url ?? ""}</p>
               </div>
             </header>
+            {usageMessage && <div className="usage-summary">{usageMessage}</div>}
+            {showUsageWarning && (
+              <div className="notice" style={{ marginTop: "12px" }}>
+                You've used 80% of your monthly leads. Upgrade to keep finding customers.
+              </div>
+            )}
+            {isBlocked && (
+              <div className="upgrade-banner" style={{ marginTop: "12px" }}>
+                <p style={{ margin: 0 }}>{blockedMessage}</p>
+                <Link className="btn btn-primary" href="/settings/billing">
+                  Upgrade
+                </Link>
+              </div>
+            )}
             {isDiscovering && (
               <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
                 <span className="discovery-indicator__dot" />
@@ -213,7 +251,7 @@ export default function ProjectLeadsPage() {
                 type="button"
                 className="btn btn-primary"
                 onClick={handleRunDiscovery}
-                disabled={isDiscovering}
+                disabled={isBlocked || isDiscovering}
               >
                 {isDiscovering ? (
                   <>
@@ -239,6 +277,20 @@ export default function ProjectLeadsPage() {
                   {refining ? "Refining…" : "Refine results"}
                 </button>
               </header>
+              {usageMessage && <div className="usage-summary">{usageMessage}</div>}
+              {showUsageWarning && (
+                <div className="notice" style={{ marginTop: "12px" }}>
+                  You've used 80% of your monthly leads. Upgrade to keep finding customers.
+                </div>
+              )}
+              {isBlocked && (
+                <div className="upgrade-banner" style={{ marginTop: "12px" }}>
+                  <p style={{ margin: 0 }}>{blockedMessage}</p>
+                  <Link className="btn btn-primary" href="/settings/billing">
+                    Upgrade
+                  </Link>
+                </div>
+              )}
               {isDiscovering && (
                 <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
                   <span className="discovery-indicator__dot" />
@@ -251,7 +303,7 @@ export default function ProjectLeadsPage() {
               {refineNotice && <p className="muted">{refineNotice}</p>}
             </section>
             <section className="grid-2" style={{ marginTop: "24px" }}>
-              {["reddit", "x"].map((platform) => {
+              {Object.keys(platformLabels).map((platform) => {
                 const platformLeads = groupedLeads[platform] ?? [];
                 if (!platformLeads.length) {
                   return null;
