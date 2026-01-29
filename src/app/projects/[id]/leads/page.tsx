@@ -2,14 +2,15 @@
 
 import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import DiscoverRunner from "./DiscoverRunner";
+import DiscoverRunner, { DiscoveryResult } from "./DiscoverRunner";
+import { toast } from "@/components/toastStore";
 import {
   AppLead,
   AppProject,
-  fetchProject,
   fetchLeads,
+  fetchProject,
   refineDiscovery,
   updateLeadStatus,
 } from "@/lib/mockAppData";
@@ -33,26 +34,49 @@ export default function ProjectLeadsPage() {
   const { status } = useUser();
   const [project, setProject] = useState<AppProject | null>(null);
   const [leads, setLeads] = useState<AppLead[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [refineNotice, setRefineNotice] = useState("");
   const [refining, setRefining] = useState(false);
   const [savingLead, setSavingLead] = useState<string | null>(null);
+  const [isDiscovering, setIsDiscovering] = useState(false);
+  const leadsRef = useRef<AppLead[]>([]);
 
-  const refetch = async () => {
+  useEffect(() => {
+    leadsRef.current = leads;
+  }, [leads]);
+
+  const refetch = useCallback(async () => {
     if (!projectId || status !== "authenticated") {
-      return;
+      return [];
+    }
+    const loadedProject = await fetchProject(projectId);
+    setProject(loadedProject ?? null);
+    const leadData = await fetchLeads(projectId);
+    setLeads(leadData);
+    return leadData;
+  }, [projectId, status]);
+
+  useEffect(() => {
+    let active = true;
+    if (!projectId || status !== "authenticated") {
+      setLoading(false);
+      return () => {
+        active = false;
+      };
     }
 
     setLoading(true);
-    try {
-      const loadedProject = await fetchProject(projectId);
-      setProject(loadedProject ?? null);
-      const leadData = await fetchLeads(projectId);
-      setLeads(leadData);
-    } finally {
-      setLoading(false);
-    }
-  };
+    void (async () => {
+      await refetch();
+      if (active) {
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [projectId, status, refetch]);
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -60,10 +84,43 @@ export default function ProjectLeadsPage() {
     }
   }, [status, router]);
 
-  useEffect(() => {
-    void refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.id]);
+  const handleDiscoveryStart = useCallback(() => {
+    setIsDiscovering(true);
+  }, []);
+
+  const handleDiscoverySuccess = useCallback(
+    async (result: DiscoveryResult) => {
+      try {
+        const beforeCount = leadsRef.current.length;
+        const updatedLeads = await refetch();
+        const added = Math.max(0, (updatedLeads.length ?? 0) - beforeCount);
+        if (result.limitReached) {
+          toast.error(result.message ?? "Discovery limit reached. Please try again.");
+        } else if (added > 0) {
+          toast.success(`✅ ${added} new leads added`);
+        } else {
+          toast.info("No new leads found this run.");
+        }
+      } finally {
+        setIsDiscovering(false);
+      }
+    },
+    [refetch]
+  );
+
+  const handleDiscoveryError = useCallback((error: unknown) => {
+    console.error(error);
+    toast.error("Discovery failed. Please try again.");
+    setIsDiscovering(false);
+  }, []);
+
+  const handleRunDiscovery = useCallback(() => {
+    if (!projectId || isDiscovering) {
+      return;
+    }
+    setIsDiscovering(true);
+    void router.push(`/projects/${projectId}/leads?discover=1`);
+  }, [projectId, isDiscovering, router]);
 
   const groupedLeads = useMemo(() => {
     const byPlatform: Record<string, AppLead[]> = {};
@@ -126,7 +183,12 @@ export default function ProjectLeadsPage() {
 
   return (
     <AppShell>
-      <DiscoverRunner projectId={projectId} onDone={refetch} />
+      <DiscoverRunner
+        projectId={projectId}
+        onStart={handleDiscoveryStart}
+        onSuccess={handleDiscoverySuccess}
+        onError={handleDiscoveryError}
+      />
       <div className="container">
         {leads.length === 0 ? (
           <section className="hero-card" style={{ marginTop: "40px" }}>
@@ -137,13 +199,31 @@ export default function ProjectLeadsPage() {
                 <p className="muted">{project?.url ?? ""}</p>
               </div>
             </header>
+            {isDiscovering && (
+              <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
+                <span className="discovery-indicator__dot" />
+                Finding leads…
+              </div>
+            )}
             <p className="muted" style={{ marginTop: "16px" }}>
               No leads yet. Run discovery to see fresh conversations.
             </p>
             <div className="cta-row" style={{ marginTop: "24px" }}>
-              <Link className="btn btn-primary" href={`/projects/${projectId}/leads?discover=1`}>
-                Find leads
-              </Link>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={handleRunDiscovery}
+                disabled={isDiscovering}
+              >
+                {isDiscovering ? (
+                  <>
+                    <span className="btn-loading" aria-hidden="true" />
+                    Finding leads…
+                  </>
+                ) : (
+                  "Find leads"
+                )}
+              </button>
             </div>
           </section>
         ) : (
@@ -151,14 +231,20 @@ export default function ProjectLeadsPage() {
             <section className="hero-card" style={{ marginTop: "24px" }}>
               <header className="flex-between">
                 <div>
-                <p className="tagline">Leads</p>
+                  <p className="tagline">Leads</p>
                   <h1>Leads for {project?.name ?? projectId}</h1>
                   <p className="muted">{project?.url ?? ""}</p>
                 </div>
-                <button className="btn btn-primary" onClick={handleRefine} disabled={refining}>
+                <button className="btn btn-primary" onClick={handleRefine} disabled={refining || isDiscovering}>
                   {refining ? "Refining…" : "Refine results"}
                 </button>
               </header>
+              {isDiscovering && (
+                <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
+                  <span className="discovery-indicator__dot" />
+                  Finding leads…
+                </div>
+              )}
               <p className="muted" style={{ marginTop: "16px" }}>
                 Grouped by platform and deduplicated so you only get the best conversations.
               </p>
@@ -193,7 +279,7 @@ export default function ProjectLeadsPage() {
                               type="button"
                               className="btn btn-outline"
                               onClick={() => void handleSave(lead.id)}
-                              disabled={savingLead === lead.id || lead.status !== "new"}
+                              disabled={savingLead === lead.id || lead.status !== "new" || isDiscovering}
                             >
                               {lead.status === "saved" ? "Saved" : "Save"}
                             </button>

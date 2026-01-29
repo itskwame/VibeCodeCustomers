@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { AppNav } from "@/components/AppNav";
+import { ToastTray } from "@/components/Toast";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   useEffect(() => {
@@ -15,7 +16,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="app-shell">
       <AppNav />
-      <main className="app-content">{children}</main>
+      <main className="app-content">
+        <ToastTray />
+        {children}
+      </main>
     </div>
   );
 }
