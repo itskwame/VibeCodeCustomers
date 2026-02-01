@@ -1,4 +1,4 @@
-import { chatCompletion } from "@/lib/xaiClient";
+import { chatCompletion, type ChatMessage } from "@/lib/xaiClient";
 import {
   XAI_MODEL_NON_REASONING,
   XAI_MODEL_REASONING,
@@ -43,7 +43,7 @@ export async function runDiscovery(
   );
 
   const candidates = await withTiming(run_id, "collect-candidates", () =>
-    collectCandidates(search_plan)
+    collectCandidates(search_plan, phase1)
   );
 
   const processedLeads = await withTiming(
@@ -98,7 +98,7 @@ async function runPhase1Profile(args: Phase1Args): Promise<Phase1Profile> {
   const websiteText =
     args.website_text?.trim() || "(not provided or could not be fetched)";
 
-  const messages = [
+  const messages: ChatMessage[] = [
     {
       role: "system",
       content:
@@ -128,7 +128,7 @@ Output exactly one JSON object matching Phase1Profile. Provide concise, specific
 async function buildSearchPlan(
   phase1: Phase1Profile
 ): Promise<SearchPlan> {
-  const messages = [
+  const messages: ChatMessage[] = [
     {
       role: "system",
       content: "Return strict JSON only matching SearchPlan. No em dashes.",
@@ -153,7 +153,8 @@ Create a search plan that uses customer language from the profile. Include at le
 }
 
 async function collectCandidates(
-  searchPlan: SearchPlan
+  searchPlan: SearchPlan,
+  phase1: Phase1Profile
 ): Promise<Candidate[]> {
   const redditSeed = searchPlan.reddit_subreddits[0] ?? "r/startups";
   const redditText = searchPlan.reddit_queries.join(" / ");
@@ -184,13 +185,17 @@ async function collectCandidates(
       author: "startup_queen",
       created_at: new Date().toISOString(),
     },
-    {
-      platform: "x",
-      url: `https://x.com/${encodeURIComponent(searchPlan.x_queries[0] ?? "startupideas")}`,
-      text: `The community says they need ${searchPlan.lead_criteria.good_lead_signals[0] ?? "clarity"} and dislike ${searchPlan.lead_criteria.bad_lead_signals[0] ?? "hype"}.`,
-      author: "founder_dot",
-      created_at: new Date().toISOString(),
-    },
+      {
+        platform: "x",
+        url: `https://x.com/${encodeURIComponent(searchPlan.x_queries[0] ?? "startupideas")}`,
+        text: `The community says they need ${
+          phase1.lead_criteria.good_lead_signals[0] ?? "clarity"
+        } and dislike ${
+          phase1.lead_criteria.bad_lead_signals[0] ?? "hype"
+        }.`,
+        author: "founder_dot",
+        created_at: new Date().toISOString(),
+      },
   ];
 
   const expanded = [
@@ -222,7 +227,7 @@ async function processCandidatesInBatches(
   const productLink = website_url;
 
   for (const chunk of chunkArray(candidates, CANDIDATE_BATCH_SIZE)) {
-    const messages = [
+    const messages: ChatMessage[] = [
       {
         role: "system",
         content:
@@ -340,7 +345,7 @@ async function repairJson<T>(
   raw: string,
   schema: JsonSchemaName
 ): Promise<T> {
-  const messages = [
+  const messages: ChatMessage[] = [
     {
       role: "system",
       content:

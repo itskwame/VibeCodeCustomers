@@ -2,7 +2,7 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 export async function getUser() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   if (data.user) {
     return data.user;

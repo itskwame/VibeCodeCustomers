@@ -21,7 +21,9 @@ create policy projects_owner_policy on projects
   using (user_id = auth.uid())
   with check (user_id = auth.uid());
 
-create function projects_updated_at() returns trigger language plpgsql as $$
+create function projects_updated_at() returns trigger language plpgsql
+  set search_path = pg_catalog, public
+  as $$
 begin
   new.updated_at := now();
   return new;
@@ -80,7 +82,9 @@ create policy conversations_owner on conversations
 create index if not exists idx_convos_user_created on conversations (user_id, created_at);
 create index if not exists idx_convos_project on conversations (project_id);
 
-create function conversations_updated_at() returns trigger language plpgsql as $$
+create function conversations_updated_at() returns trigger language plpgsql
+  set search_path = pg_catalog, public
+  as $$
 begin
   new.updated_at := now();
   return new;

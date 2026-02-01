@@ -4,20 +4,11 @@ import Link from "next/link";
 import { useRouter, useParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import DiscoverRunner, { DiscoveryResult } from "./DiscoverRunner";
-import { toast } from "@/components/toastStore";
-import {
-  AppLead,
-  AppProject,
-  fetchLeads,
-  fetchProject,
-  getUsage,
-  refineDiscovery,
-  updateLeadStatus,
-  UsageSummary,
-} from "@/lib/mockAppData";
+import { fetchProjectById, ProjectView } from "@/lib/projectClient";
+import { getUsage, UsageSummary } from "@/lib/mockAppData";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
+import type { Lead as SprintLead } from "@/lib/sprint7Types";
 
 const platformLabels: Record<string, string> = {
   reddit: "Reddit",
@@ -26,33 +17,49 @@ const platformLabels: Record<string, string> = {
 
 export default function ProjectLeadsPage() {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
+  const params = useParams<{ projectId: string }>();
   const { user, status } = useUser();
   const userId = user?.id ?? "";
   const projectId =
-    typeof params?.id === "string"
-      ? params.id
-      : Array.isArray(params?.id)
-        ? params.id[0]
+    typeof params?.projectId === "string"
+      ? params.projectId
+      : Array.isArray(params?.projectId)
+        ? params.projectId[0]
         : "";
-  const [project, setProject] = useState<AppProject | null>(null);
-  const [leads, setLeads] = useState<AppLead[]>([]);
+  const [project, setProject] = useState<ProjectView | null>(null);
+  const [leads, setLeads] = useState<SprintLead[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refineNotice, setRefineNotice] = useState("");
-  const [refining, setRefining] = useState(false);
-  const [savingLead, setSavingLead] = useState<string | null>(null);
-  const [isDiscovering, setIsDiscovering] = useState(false);
+  const [savingLead, setSavingLead] = useState<number | null>(null);
+  const [savedLeadIds, setSavedLeadIds] = useState<Set<number>>(new Set());
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [latestRunMeta, setLatestRunMeta] = useState<{
+    runId: string | null;
+    createdAt: string | null;
+    leadsReturned: number;
+  } | null>(null);
 
   const refetch = useCallback(async () => {
     if (!projectId || status !== "authenticated" || !userId) {
-      return [] as AppLead[];
+      return [] as SprintLead[];
     }
     try {
-      const loadedProject = await fetchProject(projectId);
-      setProject(loadedProject ?? null);
-      const leadData = await fetchLeads(projectId);
+      const loadedProject = await fetchProjectById(projectId);
+      setProject(loadedProject);
+
+      const response = await fetch(`/api/projects/${projectId}/leads`);
+      if (!response.ok) {
+        throw new Error("Unable to load leads.");
+      }
+      const payload = await response.json();
+      const leadData: SprintLead[] = Array.isArray(payload?.leads) ? payload.leads : [];
       setLeads(leadData);
+      setSavedLeadIds(new Set());
+      setLatestRunMeta({
+        runId: payload?.run_id ?? null,
+        createdAt: payload?.created_at ?? null,
+        leadsReturned:
+          typeof payload?.leads_returned === "number" ? payload.leads_returned : leadData.length,
+      });
       const usage = await getUsage(userId);
       setUsageSummary(usage);
       return leadData;
@@ -90,87 +97,18 @@ export default function ProjectLeadsPage() {
     }
   }, [status, router]);
 
-  const handleDiscoveryStart = useCallback(() => {
-    setIsDiscovering(true);
-  }, []);
-
-  const handleDiscoverySuccess = useCallback(
-    async (result: DiscoveryResult) => {
-      await refetch();
-      setIsDiscovering(false);
-      if (result.status === "blocked") {
-        toast.error(result.message ?? "You've hit your limit. Upgrade to keep finding customers.");
-        return;
-      }
-      if (result.status === "error") {
-        toast.error(result.message ?? "Discovery failed. Please try again.");
-        return;
-      }
-      if (result.leadsAdded > 0) {
-        const label = result.limitReached
-          ? `✅ ${result.leadsAdded} new leads added (limit reached)`
-          : `✅ ${result.leadsAdded} new leads added`;
-        toast.success(label);
-      } else {
-        toast.info("No new leads found this run.");
-      }
-    },
-    [refetch]
-  );
-
-  const handleDiscoveryError = useCallback((error: unknown) => {
-    console.error(error);
-    toast.error("Discovery failed. Please try again.");
-    setIsDiscovering(false);
-  }, []);
-
-  const isBlocked =
-    Boolean(usageSummary) && (usageSummary.runsRemaining <= 0 || usageSummary.leadsRemaining <= 0);
-  const showUsageWarning =
-    Boolean(usageSummary) && usageSummary.leadsCap > 0 && usageSummary.leadsPercent >= 80 && usageSummary.leadsRemaining > 0;
-
-  const handleRunDiscovery = useCallback(() => {
-    if (!projectId || !userId || isBlocked || isDiscovering) {
-      return;
-    }
-    setIsDiscovering(true);
-    void router.push(`/projects/${projectId}/leads?discover=1`);
-  }, [projectId, isBlocked, isDiscovering, router, userId]);
-
-  const handleSave = async (leadId: string) => {
+  const handleSave = useCallback((leadId: number) => {
     setSavingLead(leadId);
-    await updateLeadStatus(leadId, "saved");
-    setLeads((prev) =>
-      prev.map((lead) => (lead.id === leadId ? { ...lead, status: "saved" } : lead))
-    );
+    setSavedLeadIds((prev) => {
+      const next = new Set(prev);
+      next.add(leadId);
+      return next;
+    });
     setSavingLead(null);
-  };
-
-  const handleRefine = async () => {
-    if (!projectId) {
-      return;
-    }
-    setRefining(true);
-    setRefineNotice("Refining results...");
-    try {
-      const targetCustomer = project?.targetCustomer ?? "";
-      const building = project?.building;
-      await refineDiscovery({
-        projectId,
-        targetCustomer,
-        building,
-        feedback: [],
-      });
-      setRefineNotice("New leads added to the list.");
-      const updatedLeads = await fetchLeads(projectId);
-      setLeads(updatedLeads);
-    } finally {
-      setRefining(false);
-    }
-  };
+  }, []);
 
   const groupedLeads = useMemo(() => {
-    const byPlatform: Record<string, AppLead[]> = {};
+    const byPlatform: Record<string, SprintLead[]> = {};
     leads.forEach((lead) => {
       if (!byPlatform[lead.platform]) {
         byPlatform[lead.platform] = [];
@@ -179,6 +117,23 @@ export default function ProjectLeadsPage() {
     });
     return byPlatform;
   }, [leads]);
+
+  const isBlocked =
+    usageSummary !== null && (usageSummary.runsRemaining <= 0 || usageSummary.leadsRemaining <= 0);
+  const showUsageWarning =
+    usageSummary !== null &&
+    usageSummary.leadsCap > 0 &&
+    usageSummary.leadsPercent >= 80 &&
+    usageSummary.leadsRemaining > 0;
+
+  const formatRunDate = (value: string | null) =>
+    value ? new Date(value).toLocaleDateString() : null;
+
+  const latestRunDescription = latestRunMeta
+    ? `Latest run${latestRunMeta.runId ? ` (${latestRunMeta.runId})` : ""} returned ${latestRunMeta.leadsReturned} lead${
+        latestRunMeta.leadsReturned === 1 ? "" : "s"
+      }${latestRunMeta.createdAt ? ` on ${formatRunDate(latestRunMeta.createdAt)}` : ""}.`
+    : null;
 
   if (!projectId) {
     return null;
@@ -206,13 +161,6 @@ export default function ProjectLeadsPage() {
 
   return (
     <AppShell>
-      <DiscoverRunner
-        projectId={projectId}
-        userId={userId}
-        onStart={handleDiscoveryStart}
-        onSuccess={handleDiscoverySuccess}
-        onError={handleDiscoveryError}
-      />
       <div className="container">
         {leads.length === 0 ? (
           <section className="hero-card" style={{ marginTop: "40px" }}>
@@ -223,6 +171,11 @@ export default function ProjectLeadsPage() {
                 <p className="muted">{project?.url ?? ""}</p>
               </div>
             </header>
+            {latestRunDescription && (
+              <p className="muted" style={{ marginTop: "8px" }}>
+                {latestRunDescription}
+              </p>
+            )}
             {usageMessage && <div className="usage-summary">{usageMessage}</div>}
             {showUsageWarning && (
               <div className="notice" style={{ marginTop: "12px" }}>
@@ -237,31 +190,13 @@ export default function ProjectLeadsPage() {
                 </Link>
               </div>
             )}
-            {isDiscovering && (
-              <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
-                <span className="discovery-indicator__dot" />
-                Finding leads…
-              </div>
-            )}
             <p className="muted" style={{ marginTop: "16px" }}>
-              No leads yet. Run discovery to see fresh conversations.
+              No leads yet. Run discovery from your project page to see fresh conversations.
             </p>
             <div className="cta-row" style={{ marginTop: "24px" }}>
-              <button
-                type="button"
-                className="btn btn-primary"
-                onClick={handleRunDiscovery}
-                disabled={isBlocked || isDiscovering}
-              >
-                {isDiscovering ? (
-                  <>
-                    <span className="btn-loading" aria-hidden="true" />
-                    Finding leads…
-                  </>
-                ) : (
-                  "Find leads"
-                )}
-              </button>
+              <Link className="btn btn-primary" href={`/projects/${projectId}`}>
+                Back to project
+              </Link>
             </div>
           </section>
         ) : (
@@ -273,10 +208,12 @@ export default function ProjectLeadsPage() {
                   <h1>Leads for {project?.name ?? projectId}</h1>
                   <p className="muted">{project?.url ?? ""}</p>
                 </div>
-                <button className="btn btn-primary" onClick={handleRefine} disabled={refining || isDiscovering}>
-                  {refining ? "Refining…" : "Refine results"}
-                </button>
               </header>
+              {latestRunDescription && (
+                <p className="muted" style={{ marginTop: "12px" }}>
+                  {latestRunDescription}
+                </p>
+              )}
               {usageMessage && <div className="usage-summary">{usageMessage}</div>}
               {showUsageWarning && (
                 <div className="notice" style={{ marginTop: "12px" }}>
@@ -291,21 +228,14 @@ export default function ProjectLeadsPage() {
                   </Link>
                 </div>
               )}
-              {isDiscovering && (
-                <div className="discovery-indicator" role="status" aria-live="polite" style={{ marginTop: "12px" }}>
-                  <span className="discovery-indicator__dot" />
-                  Finding leads…
-                </div>
-              )}
               <p className="muted" style={{ marginTop: "16px" }}>
                 Grouped by platform and deduplicated so you only get the best conversations.
               </p>
-              {refineNotice && <p className="muted">{refineNotice}</p>}
             </section>
             <section className="grid-2" style={{ marginTop: "24px" }}>
-              {Object.keys(platformLabels).map((platform) => {
-                const platformLeads = groupedLeads[platform] ?? [];
-                if (!platformLeads.length) {
+              {Object.keys(groupedLeads).map((platform) => {
+                const platformLeads = groupedLeads[platform];
+                if (!platformLeads?.length) {
                   return null;
                 }
                 return (
@@ -316,13 +246,17 @@ export default function ProjectLeadsPage() {
                     </div>
                     <div className="lead-group">
                       {platformLeads.map((lead, index) => (
-                        <div key={lead.id} className="lead-card">
+                        <div key={lead.lead_id} className="lead-card">
                           <div className="lead-index">
                             <span>{index + 1}</span>
                             <div>
-                              <strong>{lead.title}</strong>
+                              <strong>
+                                <a href={lead.url} target="_blank" rel="noreferrer">
+                                  {lead.url}
+                                </a>
+                              </strong>
                               <p className="muted" style={{ margin: "4px 0 0", fontSize: "0.9rem" }}>
-                                Why it qualifies: {lead.why_qualifies}
+                                Why it qualifies: {lead.why_match}
                               </p>
                             </div>
                           </div>
@@ -330,14 +264,19 @@ export default function ProjectLeadsPage() {
                             <button
                               type="button"
                               className="btn btn-outline"
-                              onClick={() => void handleSave(lead.id)}
-                              disabled={savingLead === lead.id || lead.status !== "new" || isDiscovering}
+                              onClick={() => handleSave(lead.lead_id)}
+                              disabled={savingLead === lead.lead_id || savedLeadIds.has(lead.lead_id)}
                             >
-                              {lead.status === "saved" ? "Saved" : "Save"}
+                              {savedLeadIds.has(lead.lead_id) ? "Saved" : "Save"}
                             </button>
-                            <Link className="btn btn-secondary" href={`/leads/${lead.id}`}>
+                            <a
+                              className="btn btn-secondary"
+                              href={lead.url}
+                              target="_blank"
+                              rel="noreferrer"
+                            >
                               View detail
-                            </Link>
+                            </a>
                           </div>
                         </div>
                       ))}

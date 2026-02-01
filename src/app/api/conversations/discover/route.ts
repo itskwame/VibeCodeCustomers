@@ -12,7 +12,7 @@ const bodySchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const payload = await req.json().catch(() => ({}));
   const parse = bodySchema.safeParse(payload);
 
@@ -55,7 +55,8 @@ export async function POST(req: Request) {
         relevance_score: r.relevanceScore,
       })),
       { onConflict: "project_id,external_id" }
-    );
+    )
+    .select("id");
 
   if (error) {
     console.error("discover insert error", error);

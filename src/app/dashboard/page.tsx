@@ -4,15 +4,16 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
-import { fetchProjects, AppProject } from "@/lib/mockAppData";
+import { fetchProjectList, ProjectView } from "@/lib/projectClient";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
 
 export default function DashboardPage() {
   const router = useRouter();
   const { status } = useUser();
-  const [projects, setProjects] = useState<AppProject[]>([]);
+  const [projects, setProjects] = useState<ProjectView[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (status === "unauthenticated" && !isDev()) {
@@ -26,10 +27,18 @@ export default function DashboardPage() {
     }
     let cancelled = false;
     setLoading(true);
-    void fetchProjects()
+    setError(null);
+    void fetchProjectList()
       .then((data) => {
         if (!cancelled) {
           setProjects(data);
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load projects", err);
+        if (!cancelled) {
+          setProjects([]);
+          setError("Unable to load your projects.");
         }
       })
       .finally(() => {
@@ -47,6 +56,11 @@ export default function DashboardPage() {
   return (
     <AppShell>
       <div className="container">
+        {error && (
+          <div className="notice" style={{ marginTop: "16px" }}>
+            {error}
+          </div>
+        )}
         {(status === "loading" && !projects.length) || (loading && !projects.length) ? (
           <div className="notice" style={{ marginTop: "40px" }}>
             Loading your dashboard…

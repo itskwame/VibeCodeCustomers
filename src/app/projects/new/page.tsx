@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FormEvent, useState, useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
-import { createProject } from "@/lib/mockAppData";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
 
@@ -37,17 +36,44 @@ export default function NewProjectPage() {
     }
     const normalizedUrl = /^https?:\/\//i.test(rawUrl) ? rawUrl : `https://${rawUrl}`;
     try {
-      const project = await createProject({
-        name,
-        url: normalizedUrl,
-        building: description,
-        targetCustomer,
-        notes: buildingNotes,
+      const trimmedName = name.trim();
+      if (!trimmedName) {
+        throw new Error("A project name is required.");
+      }
+      const trimmedDescription = description.trim();
+      let productDescription =
+        trimmedDescription.length >= 10
+          ? trimmedDescription
+          : `${trimmedName} ${trimmedDescription || "project"}`;
+      if (normalizedUrl) {
+        productDescription = `${productDescription}\nWebsite: ${normalizedUrl}`;
+      }
+      const notesText = buildingNotes.trim();
+      if (notesText) {
+        productDescription = `${productDescription}\nNotes: ${notesText}`;
+      }
+      const payload = {
+        name: trimmedName,
+        productDescription,
+        keywords: [trimmedName],
+        subreddits: [],
+        targetUser: targetCustomer.trim() || undefined,
+      };
+      const response = await fetch("/api/projects", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
       });
-      router.push(`/projects/${project.id}`);
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || !result?.project?.id) {
+        throw new Error(result?.error ?? "Unable to create project.");
+      }
+      router.push(`/projects/${result.project.id}`);
     } catch (err) {
       console.error(err);
-      setError("Unable to create project.");
+      setError(err instanceof Error ? err.message : "Unable to create project.");
     } finally {
       setLoading(false);
     }

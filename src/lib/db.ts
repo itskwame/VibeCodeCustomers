@@ -2,12 +2,12 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Project, Conversation } from "@/lib/types";
 
-function getClient(client?: SupabaseClient) {
-  return client ?? createSupabaseServerClient();
+async function getClient(client?: SupabaseClient) {
+  return client ?? (await createSupabaseServerClient());
 }
 
 export async function getProjectsForUser(userId: string, client?: SupabaseClient): Promise<Project[]> {
-  const supabase = getClient(client);
+  const supabase = await getClient(client);
   const { data, error } = await supabase
     .from("projects")
     .select("*")
@@ -27,7 +27,7 @@ export async function getProject(
   userId: string,
   client?: SupabaseClient
 ): Promise<Project | null> {
-  const supabase = getClient(client);
+  const supabase = await getClient(client);
   const { data, error } = await supabase
     .from("projects")
     .select("*")
@@ -43,7 +43,7 @@ export async function getProject(
 }
 
 export async function getConversationsForProject(projectId: string, client?: SupabaseClient): Promise<Conversation[]> {
-  const supabase = getClient(client);
+  const supabase = await getClient(client);
   const { data, error } = await supabase
     .from("conversations")
     .select("*")
@@ -62,7 +62,7 @@ export async function getConversationById(
   projectId: string | null = null,
   client?: SupabaseClient
 ): Promise<Conversation | null> {
-  const supabase = getClient(client);
+  const supabase = await getClient(client);
   let query = supabase.from("conversations").select("*").eq("id", id);
   if (projectId) {
     query = query.eq("project_id", projectId);

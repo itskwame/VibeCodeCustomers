@@ -15,7 +15,7 @@ const saveSchema = z.object({
 });
 
 export async function POST(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const payload = await req.json().catch(() => ({}));
   const parse = saveSchema.safeParse(payload);
 

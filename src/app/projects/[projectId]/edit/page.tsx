@@ -10,8 +10,8 @@ import { isDev } from "@/lib/devAuth";
 
 export default function EditProjectPage() {
   const router = useRouter();
-  const params = useParams<{ id: string }>();
-  const id = params?.id;
+  const params = useParams<{ projectId: string }>();
+  const id = params?.projectId;
   const { status } = useUser();
   const [project, setProject] = useState<AppProject | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);

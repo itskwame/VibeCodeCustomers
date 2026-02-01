@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 export default function ProjectDiscoverRedirect({
   params,
 }: {
-  params: { id: string };
+  params: { projectId: string };
 }) {
-  redirect(`/projects/${params.id}/leads?discover=1`);
+  redirect(`/projects/${params.projectId}/leads?discover=1`);
 }

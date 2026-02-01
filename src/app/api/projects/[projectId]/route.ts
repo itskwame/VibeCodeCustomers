@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { z } from "zod";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEV_USER_ID, isDev } from "@/lib/devAuth";
@@ -15,18 +15,22 @@ const updateSchema = z
     message: "At least one field is required",
   });
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
-  const supabase = createSupabaseServerClient();
+export async function GET(
+  _request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const { projectId } = await params;
   const { data, error } = await supabase
     .from("projects")
     .select("*")
-    .eq("id", params.id)
+    .eq("id", projectId)
     .eq("user_id", userId)
     .maybeSingle();
 
@@ -41,20 +45,24 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   return NextResponse.json({ project: data });
 }
 
-export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const supabase = createSupabaseServerClient();
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ projectId: string }> }
+) {
+  const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const payload = await req.json().catch(() => ({}));
+  const payload = await request.json().catch(() => ({}));
   const parse = updateSchema.safeParse(payload);
   if (!parse.success) {
     return NextResponse.json({ error: parse.error.message }, { status: 400 });
   }
 
+  const { projectId } = await params;
   const { data, error } = await supabase
     .from("projects")
     .update({
@@ -62,7 +70,7 @@ export async function PUT(req: Request, { params }: { params: { id: string } }) 
       product_description: parse.data.productDescription,
       target_user: parse.data.targetUser ?? undefined,
     })
-    .eq("id", params.id)
+    .eq("id", projectId)
     .eq("user_id", userId)
     .select()
     .single();

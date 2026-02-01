@@ -12,7 +12,7 @@ const bodySchema = z.object({
 });
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
   if (!userId) {
@@ -34,7 +34,7 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
   if (!userId) {

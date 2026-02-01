@@ -30,8 +30,12 @@ export type RunRecord = {
 
 export type AppLead = {
   id: string;
+  userId: string;
   projectId: string;
   projectName: string;
+  source: string;
+  url: string;
+  snippet: string;
   platform: string;
   platformKey: string;
   platformLabel: string;
@@ -40,8 +44,8 @@ export type AppLead = {
   context: string;
   whyQualifies: string;
   why_qualifies: string;
-  suggestedReplies: [string, string];
-  suggested_replies: [string, string];
+  suggestedReplies: string[];
+  suggested_replies: string[];
   status: LeadStatus;
   run_id: string;
   dateAdded: string;

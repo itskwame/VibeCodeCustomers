@@ -2,25 +2,33 @@
 
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { AppShell } from "@/components/AppShell";
-import { fetchProject, fetchRuns, RunRecord, AppProject } from "@/lib/mockAppData";
+import { fetchProjectById, ProjectView } from "@/lib/projectClient";
 import { useUser } from "@/lib/hooks/useUser";
 import { isDev } from "@/lib/devAuth";
+
+type RunSummary = {
+  run_id: string;
+  created_at: string;
+  leads_returned: number;
+};
 
 export default function ProjectDetailPage() {
   const router = useRouter();
   const { status } = useUser();
-  const [project, setProject] = useState<AppProject | null>(null);
-  const [runs, setRuns] = useState<RunRecord[]>([]);
+  const [project, setProject] = useState<ProjectView | null>(null);
+  const [runs, setRuns] = useState<RunSummary[]>([]);
   const [loadingProject, setLoadingProject] = useState(true);
   const [loadingRuns, setLoadingRuns] = useState(true);
-  const params = useParams<{ id: string }>();
+  const [isRunningDiscovery, setIsRunningDiscovery] = useState(false);
+  const [discoveryError, setDiscoveryError] = useState<string | null>(null);
+  const params = useParams<{ projectId: string }>();
   const projectId =
-    typeof params?.id === "string"
-      ? params.id
-      : Array.isArray(params?.id)
-        ? params.id[0]
+    typeof params?.projectId === "string"
+      ? params.projectId
+      : Array.isArray(params?.projectId)
+        ? params.projectId[0]
         : "";
 
   useEffect(() => {
@@ -29,26 +37,103 @@ export default function ProjectDetailPage() {
     }
   }, [status, router]);
 
+  const handleFindLeads = useCallback(async () => {
+    if (!projectId || !project || isRunningDiscovery) {
+      return;
+    }
+    setIsRunningDiscovery(true);
+    setDiscoveryError(null);
+    try {
+      const response = await fetch("/api/discovery/run", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ projectId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(payload?.error ?? "Unable to start discovery run.");
+      }
+      await response.json();
+      void router.push(`/projects/${projectId}/leads`);
+    } catch (error) {
+      console.error("Discovery run failed", error);
+      setDiscoveryError(
+        error instanceof Error ? error.message : "Unable to start discovery run."
+      );
+    } finally {
+      setIsRunningDiscovery(false);
+    }
+  }, [project, projectId, router, isRunningDiscovery]);
+
   useEffect(() => {
     if (!projectId || status !== "authenticated") {
       return;
     }
 
+    let cancelled = false;
     setLoadingProject(true);
-    void fetchProject(projectId)
-      .then((data) => setProject(data ?? null))
-      .finally(() => setLoadingProject(false));
+    void fetchProjectById(projectId)
+      .then((data) => {
+        if (!cancelled) {
+          setProject(data);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load project", error);
+        if (!cancelled) {
+          setProject(null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingProject(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [status, projectId]);
 
   useEffect(() => {
     if (!projectId || status !== "authenticated") {
+      setRuns([]);
+      setLoadingRuns(false);
       return;
     }
 
+    let active = true;
     setLoadingRuns(true);
-    void fetchRuns(projectId)
-      .then((data) => setRuns(data))
-      .finally(() => setLoadingRuns(false));
+
+    void fetch(`/api/projects/${projectId}/runs`)
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load run history.");
+        }
+        return response.json();
+      })
+      .then((payload) => {
+        if (!active) {
+          return;
+        }
+        setRuns(Array.isArray(payload?.runs) ? payload.runs : []);
+      })
+      .catch((error) => {
+        console.error("Failed to load run history", error);
+        if (active) {
+          setRuns([]);
+        }
+      })
+      .finally(() => {
+        if (active) {
+          setLoadingRuns(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [status, projectId]);
 
   if (status === "loading" || loadingProject) {
@@ -108,9 +193,21 @@ export default function ProjectDetailPage() {
             </div>
           </div>
           <div className="cta-row" style={{ marginTop: "28px" }}>
-            <Link className="btn btn-primary" href={`/projects/${projectId}/leads?discover=1`}>
-              Find Leads
-            </Link>
+            <button
+              type="button"
+              className="btn btn-primary"
+              onClick={handleFindLeads}
+              disabled={isRunningDiscovery || loadingProject}
+            >
+              {isRunningDiscovery ? (
+                <>
+                  <span className="btn-loading" aria-hidden="true" />
+                  Finding leads…
+                </>
+              ) : (
+                "Find leads"
+              )}
+            </button>
             <Link className="btn btn-outline" href={`/projects/${project.id}/edit`}>
               Edit project
             </Link>
@@ -118,6 +215,11 @@ export default function ProjectDetailPage() {
               View past runs
             </Link>
           </div>
+          {discoveryError && (
+            <div className="notice" style={{ marginTop: "12px" }}>
+              {discoveryError}
+            </div>
+          )}
         </section>
 
         <section id="runs" className="hero-card" style={{ marginTop: "32px" }}>
@@ -134,19 +236,16 @@ export default function ProjectDetailPage() {
           ) : (
             <ul className="run-list" style={{ marginTop: "16px" }}>
               {runs.map((run) => (
-                <li key={run.id} className="run-item">
+                <li key={run.run_id} className="run-item">
                   <div>
-                    <strong>{new Date(run.createdAt).toLocaleDateString()}</strong>
-                    <p className="muted">
-                      Target: {run.targetCustomer || project.targetCustomer}
-                      {run.building ? ` · Building: ${run.building}` : ""}
+                    <strong>{new Date(run.created_at).toLocaleDateString()}</strong>
+                    <p className="muted" style={{ margin: "4px 0" }}>
+                      Leads returned: {run.leads_returned}
+                    </p>
+                    <p className="muted" style={{ margin: 0, fontSize: "0.85rem" }}>
+                      Run ID: {run.run_id}
                     </p>
                   </div>
-                  {run.feedback && run.feedback.length > 0 && (
-                    <div className="status-pill">
-                      Feedback: {run.feedback.join(", ")}
-                    </div>
-                  )}
                 </li>
               ))}
             </ul>

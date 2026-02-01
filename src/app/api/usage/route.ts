@@ -4,7 +4,7 @@ import { getPeriodKey, PLAN_LIMITS, summarizeUsage } from "@/lib/usage";
 import { DEV_USER_ID, isDev } from "@/lib/devAuth";
 
 export async function GET(req: Request) {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? (isDev() ? DEV_USER_ID : null);
   if (!userId) {

@@ -11,7 +11,7 @@ const devUser = {
 };
 
 export async function GET() {
-  const supabase = createSupabaseServerClient();
+  const supabase = await createSupabaseServerClient();
   const { data } = await supabase.auth.getUser();
   if (!data.user) {
     if (isDev()) {
